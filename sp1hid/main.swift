@@ -12,6 +12,7 @@ private let productID = 0xC625
 
 final class Driver {
     let monitor: Bool
+    let display = Display()
     private let lock = NSLock()
     private var tx = 0, ty = 0, tz = 0
     private var rx = 0, ry = 0, rz = 0
@@ -132,6 +133,9 @@ final class Driver {
 
         let name = (IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String) ?? "SpacePilot"
         fputs("sp1hid: \(name) offen \(exclusive ? "exklusiv" : "geteilt")\n", stderr)
+        if open == kIOReturnSuccess {
+            display.attach(device)
+        }
         setConnected(true, exclusive: exclusive)
     }
 
@@ -143,6 +147,7 @@ final class Driver {
         lock.unlock()
         if !anyLeft {
             fputs("sp1hid: SpacePilot getrennt\n", stderr)
+            display.detach()
             setConnected(false)
         }
     }
@@ -229,6 +234,16 @@ private func jsonString(_ value: String) -> String {
     return String(text.dropFirst().dropLast())
 }
 
+if CommandLine.arguments.contains("--lcd-dump") {
+    let pixels = renderPreview(["Fusion   1.50x", "Press a button to assign it"])
+    var bytes = Array("P5\n240 64\n255\n".utf8)
+    bytes.append(contentsOf: pixels)
+    let url = URL(fileURLWithPath: "/tmp/sp1lcd.pgm")
+    try? Data(bytes).write(to: url)
+    fputs("wrote \(url.path)\n", stderr)
+    exit(0)
+}
+
 let monitor = CommandLine.arguments.contains("--monitor")
 let driver = Driver(monitor: monitor)
 
@@ -285,6 +300,15 @@ if !driver.isConnected() {
     fputs("{\"status\":\"waiting\"}\n", stdout)
     fflush(stdout)
     fputs("sp1hid: kein SpacePilot gefunden\n", stderr)
+}
+
+Thread.detachNewThread {
+    while let line = readLine(strippingNewline: true) {
+        guard let data = line.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let lines = obj["lcd"] as? [String] else { continue }
+        driver.display.show(lines)
+    }
 }
 
 fputs("sp1hid: bereit (046d:c625)\n", stderr)

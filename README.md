@@ -62,4 +62,4 @@ The same mapping is stored in `config.json` under `buttons`. Indexes start at 0.
 
 One line shows the raw values. Near 0 at rest, clearly above that when you move the cap. Stop with Ctrl+C.
 
-The SpacePilot LCD stays dark. It uses a separate protocol and is not needed for the view.
+The SpacePilot LCD shows the Fusion speed and the button assignments on the left. CPU, memory, and GPU use sit on the right and refresh about once a second. The device firmware paints its own logo back unless the add-in keeps refreshing the screen, so the logo returns when the add-in stops.

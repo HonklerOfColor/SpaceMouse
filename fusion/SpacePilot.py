@@ -414,14 +414,17 @@ class AddIn:
                 self._fire()
                 time.sleep(2)
                 continue
+            self._lcd_payload = None
             try:
                 self.proc = subprocess.Popen(
                     [HELPER],
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
                     bufsize=1,
                 )
+                threading.Thread(target=self._log_stderr, args=(self.proc,), daemon=True).start()
             except Exception as exc:
                 self._set_status("failed to start: %s" % exc, ok=False, bad=True)
                 self._fire()
@@ -439,6 +442,15 @@ class AddIn:
             self._fire()
             time.sleep(1.0)
 
+    def _log_stderr(self, proc):
+        try:
+            for line in proc.stderr:
+                text = line.strip()
+                if text:
+                    log(text)
+        except Exception:
+            pass
+
     def _ingest(self, line):
         if not line:
             return
@@ -450,8 +462,10 @@ class AddIn:
             status = msg["status"]
             if status == "connected":
                 self._set_status("SpacePilot connected", ok=True, bad=False)
+                self._push_lcd()
             elif status == "shared":
                 self._set_status("SpacePilot connected, macOS is still moving the pointer", ok=True, bad=True)
+                self._push_lcd()
             elif status == "disconnected":
                 self._set_status("SpacePilot disconnected", ok=False, bad=False)
                 self._set_axes([0, 0, 0, 0, 0, 0], 0)
@@ -505,6 +519,7 @@ class AddIn:
         if mtime != self.config_mtime and mtime is not None:
             self.config = load_config()
             self.config_mtime = mtime
+            self._push_lcd()
 
     def _mtime(self):
         try:
@@ -646,6 +661,7 @@ class AddIn:
         if notes:
             self.button_text = "  ".join(notes)
             log(self.button_text)
+            self._push_lcd()
 
     def _run_action(self, action):
         name = action.strip().lower()
@@ -672,6 +688,7 @@ class AddIn:
                 save_config(cfg)
                 self.config_mtime = self._mtime()
                 self.button_text = "Speed %.2f" % cfg["speed"]
+                self._push_lcd()
                 return
             log("unbekannte Aktion %s" % action)
         except Exception as exc:
@@ -825,6 +842,55 @@ class AddIn:
             log("einstellung: %s" % exc)
             return
         self._push_palette(force=True)
+        self._push_lcd()
+
+    def _lcd_lines(self):
+        cfg = self.config
+        names = {key: label for key, label in BUTTON_CHOICES}
+        try:
+            speed = float(cfg.get("speed", 1.0))
+        except (TypeError, ValueError):
+            speed = 1.0
+        lines = ["Fusion   %.2fx" % speed]
+        if self.button_text:
+            lines.append(self.button_text)
+        assigned = []
+        buttons = cfg.get("buttons") or {}
+        keys = sorted(buttons, key=lambda key: int(key) if str(key).isdigit() else 99)
+        for key in keys:
+            action = str(buttons.get(key) or "")
+            if action:
+                assigned.append("%s %s" % (key, names.get(action, action)))
+        row = []
+        for item in assigned:
+            row.append(item)
+            if len(row) == 2:
+                lines.append("   ".join(row))
+                row = []
+        if row:
+            lines.append(row[0])
+        if len(lines) == 1:
+            lines.append("Press a button to assign it")
+        return lines[:4]
+
+    def _push_lcd(self):
+        try:
+            payload = json.dumps({"lcd": self._lcd_lines()})
+        except Exception:
+            return
+        with self.lock:
+            if payload == getattr(self, "_lcd_payload", None):
+                return
+            proc = self.proc
+            if proc is None or proc.poll() is not None or proc.stdin is None:
+                return
+            try:
+                proc.stdin.write(payload + "\n")
+                proc.stdin.flush()
+            except Exception as exc:
+                log("lcd: %s" % exc)
+                return
+            self._lcd_payload = payload
 
     def _status_text(self):
         with self.lock:
