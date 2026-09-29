@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    padding: 14px 16px 18px;
+    background: #1e1e1e;
+    color: #e6e6e6;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overflow: auto;
+    box-sizing: border-box;
+  }
+  h1 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+  #stat { margin: 0 0 12px; color: #9a9a9a; }
+  #stat.on { color: #7dcea0; }
+  #stat.bad { color: #e07a7a; }
+  .row { display: grid; grid-template-columns: 28px 1fr 52px; gap: 8px; align-items: center; margin: 5px 0; }
+  .track { height: 8px; background: #333; border-radius: 4px; position: relative; overflow: hidden; }
+  .zero { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #666; }
+  .fill { position: absolute; top: 0; bottom: 0; background: #4aa3df; }
+  .val { text-align: right; font-variant-numeric: tabular-nums; color: #bbb; }
+  #btn { margin-top: 12px; min-height: 1.4em; color: #f0d78c; }
+  .hint { margin: 8px 0 0; color: #8d8d8d; }
+  h2 { font-size: 12px; font-weight: 600; margin: 18px 0 8px; color: #c8c8c8; }
+  .speed { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; margin: 4px 0 14px; }
+  .speed-box { overflow: hidden; height: 20px; display: flex; align-items: center; }
+  .speed input { width: 100%; height: 16px; margin: 0; accent-color: #4aa3df; }
+  #speedVal { font-variant-numeric: tabular-nums; color: #bbb; min-width: 3.2em; text-align: right; }
+  .motion {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+    margin: 0 0 6px;
+    padding: 8px 10px;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    color: inherit;
+    background: #262626;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+  }
+  .motion .name { font-weight: 600; }
+  .dir {
+    font-weight: 600;
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: right;
+    color: #d7efd4;
+    background: #243028;
+    border-radius: 999px;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+  .motion.reversed { background: #2e281c; border-color: #8a6a2f; }
+  .motion.reversed .dir { color: #ffe3a3; background: #4a3b1c; }
+  .keyrow {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 8px;
+    align-items: center;
+    margin: 0 0 6px;
+    padding: 6px 8px;
+    background: #262626;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+  }
+  .keyrow.held { background: #33301f; border-color: #f0d78c; }
+  select {
+    width: 100%;
+    background: #2a2a2a;
+    color: #eee;
+    border: 1px solid #555;
+    border-radius: 4px;
+    font: inherit;
+    padding: 4px 6px;
+  }
+</style>
+</head>
+<body>
+  <h1>SpacePilot</h1>
+  <div id="stat">connecting…</div>
+  <div id="axes"></div>
+  <div id="btn"></div>
+
+  <h2>Direction</h2>
+  <div class="speed">
+    <label for="speed">Speed</label>
+    <div class="speed-box"><input id="speed" type="range" min="0.2" max="5" step="0.05" value="1"></div>
+    <span id="speedVal">1.00</span>
+  </div>
+  <button type="button" class="motion" data-key="panX"><span class="name">Left / right</span><span class="dir" id="dir-panX">→ model right</span></button>
+  <button type="button" class="motion" data-key="panY"><span class="name">Up / down</span><span class="dir" id="dir-panY">↑ model up</span></button>
+  <button type="button" class="motion" data-key="zoom"><span class="name">Zoom</span><span class="dir" id="dir-zoom">in</span></button>
+  <button type="button" class="motion" data-key="pitch"><span class="name">Tilt forward / back</span><span class="dir" id="dir-pitch">forward follows</span></button>
+  <button type="button" class="motion" data-key="yaw"><span class="name">Twist</span><span class="dir" id="dir-yaw">twist follows</span></button>
+  <button type="button" class="motion" data-key="roll"><span class="name">Tilt left / right</span><span class="dir" id="dir-roll">side follows</span></button>
+  <p class="hint">Green is the calibrated direction. Yellow is reversed. Click a row to swap it.</p>
+
+  <h2>Buttons</h2>
+  <p class="hint" id="keysEmpty">Press a button on the SpacePilot. It shows up here, then you pick an action.</p>
+  <div id="keys"></div>
+<script>
+var speedDrag = false;
+var seenButtons = {};
+var buttonStamp = '';
+var DIR = {
+  panX: ['→ model right', '← model left'],
+  panY: ['↑ model up', '↓ model down'],
+  zoom: ['zoom in', 'zoom out'],
+  pitch: ['forward follows', 'forward reversed'],
+  yaw: ['twist follows', 'twist reversed'],
+  roll: ['side follows', 'side reversed']
+};
+var FALLBACK_ACTIONS = [
+  {id: '', label: 'None'},
+  {id: 'fit', label: 'Fit'},
+  {id: 'iso', label: 'Isometric'},
+  {id: 'top', label: 'Top'},
+  {id: 'bottom', label: 'Bottom'},
+  {id: 'front', label: 'Front'},
+  {id: 'back', label: 'Back'},
+  {id: 'left', label: 'Left'},
+  {id: 'right', label: 'Right'},
+  {id: 'undo', label: 'Undo'},
+  {id: 'redo', label: 'Redo'},
+  {id: 'faster', label: 'Faster'},
+  {id: 'slower', label: 'Slower'},
+  {id: 'key:shift', label: 'Hold Shift'},
+  {id: 'key:ctrl', label: 'Hold Ctrl'},
+  {id: 'key:alt', label: 'Hold Alt'},
+  {id: 'key:cmd', label: 'Hold Command'},
+  {id: 'key:esc', label: 'Esc'}
+];
+
+function bar(name, value) {
+  var v = Math.max(-1, Math.min(1, value || 0));
+  var left = v < 0 ? 50 + v * 50 : 50;
+  var width = Math.abs(v) * 50;
+  return '<div class="row"><span>' + name + '</span>'
+    + '<div class="track"><div class="zero"></div>'
+    + '<div class="fill" style="left:' + left + '%;width:' + width + '%"></div></div>'
+    + '<span class="val">' + (v >= 0 ? '+' : '') + v.toFixed(2) + '</span></div>';
+}
+
+function sendSetting(obj) {
+  try {
+    if (window.adsk && adsk.fusionSendData) adsk.fusionSendData('setting', JSON.stringify(obj));
+  } catch (e) {}
+}
+
+function syncSpeed(value) {
+  var el = document.getElementById('speed');
+  var label = document.getElementById('speedVal');
+  var number = Number(value);
+  if (!isFinite(number)) return;
+  label.textContent = number.toFixed(2);
+  if (!speedDrag && Math.abs(Number(el.value) - number) > 0.001) el.value = number;
+}
+
+function syncMap(reversed) {
+  reversed = reversed || {};
+  var rows = document.querySelectorAll('.motion');
+  for (var i = 0; i < rows.length; i++) {
+    var key = rows[i].getAttribute('data-key');
+    var flipped = !!reversed[key];
+    var label = document.getElementById('dir-' + key);
+    var words = DIR[key] || ['Folgt', 'Vertauscht'];
+    if (label) label.textContent = flipped ? words[1] : words[0];
+    rows[i].classList.toggle('reversed', flipped);
+  }
+}
+
+function syncButtons(assigned, held, actions) {
+  assigned = assigned || {};
+  held = held || [];
+  actions = actions && actions.length ? actions : FALLBACK_ACTIONS;
+  for (var h = 0; h < held.length; h++) seenButtons[String(held[h])] = true;
+  Object.keys(assigned).forEach(function (key) { seenButtons[String(key)] = true; });
+  var keys = Object.keys(seenButtons).sort(function (a, b) { return Number(a) - Number(b); });
+  var box = document.getElementById('keys');
+  var empty = document.getElementById('keysEmpty');
+  if (!keys.length) {
+    box.innerHTML = '';
+    empty.style.display = '';
+    buttonStamp = '';
+    return;
+  }
+  empty.style.display = 'none';
+  var stamp = keys.map(function (key) { return key + '=' + (assigned[key] || ''); }).join(',');
+  if (stamp !== buttonStamp) {
+    buttonStamp = stamp;
+    var html = '';
+    for (var i = 0; i < keys.length; i++) {
+      var index = keys[i];
+      html += '<div class="keyrow" data-index="' + index + '"><span>Button ' + index + '</span><select data-index="' + index + '">';
+      for (var j = 0; j < actions.length; j++) {
+        var id = actions[j].id;
+        var selected = (assigned[index] || '') === id ? ' selected' : '';
+        html += '<option value="' + id + '"' + selected + '>' + actions[j].label + '</option>';
+      }
+      html += '</select></div>';
+    }
+    box.innerHTML = html;
+  }
+  var rows = box.querySelectorAll('.keyrow');
+  for (var n = 0; n < rows.length; n++) {
+    var idx = Number(rows[n].getAttribute('data-index'));
+    rows[n].classList.toggle('held', held.indexOf(idx) !== -1);
+  }
+}
+
+function fusionJavaScriptHandler(action, data) {
+  return applyState(action, data);
+}
+
+function applyState(action, data) {
+  if (action !== 'state') return 'ok';
+  var s = JSON.parse(data);
+  var stat = document.getElementById('stat');
+  stat.textContent = s.status;
+  stat.className = s.ok ? 'on' : (s.bad ? 'bad' : '');
+  var names = ['tx', 'ty', 'tz', 'rx', 'ry', 'rz'];
+  var html = '';
+  for (var i = 0; i < 6; i++) html += bar(names[i], s.axes[i]);
+  document.getElementById('axes').innerHTML = html;
+  document.getElementById('btn').textContent = s.buttonText || '';
+  if (s.settings) {
+    syncSpeed(s.settings.speed);
+    syncMap(s.settings.reversed);
+    syncButtons(s.settings.buttons, s.settings.held, s.settings.actions);
+  }
+  return 'ok';
+}
+
+window.fusionJavaScriptHandler = {
+  handle: function (action, data) {
+    try {
+      return applyState(action, data);
+    } catch (e) {
+      return String(e);
+    }
+  }
+};
+
+document.getElementById('speed').addEventListener('input', function () {
+  speedDrag = true;
+  document.getElementById('speedVal').textContent = Number(this.value).toFixed(2);
+  sendSetting({speed: Number(this.value)});
+});
+document.getElementById('speed').addEventListener('change', function () {
+  speedDrag = false;
+  sendSetting({speed: Number(this.value)});
+});
+document.querySelectorAll('.motion').forEach(function (row) {
+  row.addEventListener('click', function () {
+    sendSetting({flip: row.getAttribute('data-key')});
+  });
+});
+document.getElementById('keys').addEventListener('change', function (event) {
+  var select = event.target;
+  if (!select || select.tagName !== 'SELECT') return;
+  sendSetting({button: Number(select.getAttribute('data-index')), action: select.value});
+});
+
+function tellFusionReady() {
+  try {
+    if (window.adsk && adsk.fusionSendData) adsk.fusionSendData('ready', '');
+  } catch (e) {}
+}
+window.onload = tellFusionReady;
+setTimeout(tellFusionReady, 300);
+</script>
+</body>
+</html>

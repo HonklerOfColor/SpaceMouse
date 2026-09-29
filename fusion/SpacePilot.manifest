@@ -1,0 +1,13 @@
+{
+  "autodeskProduct": "Fusion",
+  "type": "addin",
+  "id": "com.local.spacepilot",
+  "author": "SpacePilot",
+  "description": {
+    "": "Reads a 3Dconnexion SpacePilot (SP1, USB) and drives the Fusion view."
+  },
+  "version": "1.0.0",
+  "runOnStartup": true,
+  "supportedOS": "mac",
+  "editEnabled": false
+}
