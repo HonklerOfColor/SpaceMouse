@@ -141,15 +141,27 @@ def upright_axis(up):
     return (0.0, 0.0, 1.0) if abs(up[2]) >= abs(up[1]) else (0.0, 1.0, 0.0)
 
 
-def facing(axis, up):
-    """The world axis turned to the side of the camera's up vector.
+def facing(axis, eye, target, up):
+    """The world axis, reversed where needed so twist turns the same way on screen.
 
-    With the model upside down, twist then turns the same way on screen as it
-    does upright. A view along the axis, such as Top, keeps it as given.
+    Seen from the side, the axis takes the side of the camera's up, so an
+    upside-down model turns like an upright one. Seen from above or below,
+    the axis points back at the camera, so Bottom spins the way Top does.
     """
     if axis is None:
         return None
-    if _dot(axis, up) < -1e-3 * (_length(axis) * _length(up)):
+    unit = _normalize(axis)
+    frame = basis(eye, target, up)
+    if unit is None or frame is None:
+        return tuple(axis)
+    _right, forward, true_up = frame
+    along_up = _dot(unit, true_up)
+    along_view = _dot(unit, forward)
+    if abs(along_view) > abs(along_up):
+        flip = along_view > 0.0
+    else:
+        flip = along_up < 0.0
+    if flip:
         return tuple(-c or 0.0 for c in axis)
     return tuple(axis)
 

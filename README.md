@@ -29,7 +29,7 @@ If macOS asks for **Input Monitoring**, allow Autodesk Fusion. Without that perm
 
 ## Use
 
-The cap moves the model the way a SpaceMouse does in Fusion: slide sideways and forward to pan, press in to zoom closer, tilt forward to orbit, and twist to turn the model around the vertical axis of the design. Tilting forward and twisting keep the horizon level. Tilting the cap left or right rolls the view.
+The cap moves the model the way a SpaceMouse does in Fusion: slide sideways and forward to pan, press in to zoom closer, tilt forward to orbit, and twist to turn the model around the vertical axis of the design. Tilting forward and twisting keep the horizon level. With the model upside down or seen from below, twist still turns the picture the way it does upright. Tilting the cap left or right rolls the view.
 
 Speed and axis direction live in
 

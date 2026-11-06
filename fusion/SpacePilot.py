@@ -656,7 +656,7 @@ class AddIn:
                     "ortho": ortho,
                     "extents": extents_of(camera) if ortho else None,
                     "fov": camera.perspectiveAngle,
-                    "worldUp": self._world_up(up),
+                    "worldUp": self._world_up(eye, target, up),
                 }
             view = self._view
             speed = float(cfg.get("speed", 1.0))
@@ -715,7 +715,7 @@ class AddIn:
                 self._last_cam_error = message
                 log(message)
 
-    def _world_up(self, camera_up):
+    def _world_up(self, eye, target, camera_up):
         """Axis that twist turns around. None turns around the screen's vertical."""
         choice = str(self.config.get("worldUp") or "auto").strip().lower()
         source = choice
@@ -730,10 +730,13 @@ class AddIn:
                 axis = motion.upright_axis(camera_up)
                 source = "camera"
         # Decided once per movement, so twist never reverses mid-gesture.
-        axis = motion.facing(axis, camera_up)
+        axis = motion.facing(axis, eye, target, camera_up)
         if (source, axis) != self._logged_up:
             self._logged_up = (source, axis)
-            log("drehachse %s %s" % (source, axis))
+            view = tuple(round(b - a, 2) for a, b in zip(eye, target))
+            log("drehachse %s %s blick %s oben %s" % (
+                source, axis, view, tuple(round(c, 2) for c in camera_up),
+            ))
         return axis
 
     def _modeling_up(self):
