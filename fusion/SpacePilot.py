@@ -656,7 +656,8 @@ class AddIn:
                     "ortho": ortho,
                     "extents": extents_of(camera) if ortho else None,
                     "fov": camera.perspectiveAngle,
-                    "worldUp": self._world_up(eye, target, up),
+                    "worldAxis": self._world_axis(up),
+                    "worldUp": None,
                 }
             view = self._view
             speed = float(cfg.get("speed", 1.0))
@@ -668,6 +669,8 @@ class AddIn:
             }
             object_mode = bool(cfg.get("objectMode", True))
             eye, target, up = view["eye"], view["target"], view["up"]
+            # Every step, so twist follows the view while the cap is still held.
+            view["worldUp"] = self._world_up(eye, target, up, view["worldAxis"], view["worldUp"])
             if view["ortho"] and view["extents"]:
                 height = view["extents"][1]
             else:
@@ -715,8 +718,20 @@ class AddIn:
                 self._last_cam_error = message
                 log(message)
 
-    def _world_up(self, eye, target, camera_up):
-        """Axis that twist turns around. None turns around the screen's vertical."""
+    def _world_up(self, eye, target, camera_up, base=None, previous=None):
+        """Axis that twist turns around, turned to the view. None is the screen's vertical."""
+        source, axis = base or self._world_axis(camera_up)
+        axis = motion.facing(axis, eye, target, camera_up, previous)
+        if (source, axis) != self._logged_up:
+            self._logged_up = (source, axis)
+            view = tuple(round(b - a, 2) for a, b in zip(eye, target))
+            log("drehachse %s %s blick %s oben %s" % (
+                source, axis, view, tuple(round(c, 2) for c in camera_up),
+            ))
+        return axis
+
+    def _world_axis(self, camera_up):
+        """Twist axis from the settings and its source, before the view turns it."""
         choice = str(self.config.get("worldUp") or "auto").strip().lower()
         source = choice
         if choice == "screen":
@@ -729,15 +744,7 @@ class AddIn:
             if axis is None:
                 axis = motion.upright_axis(camera_up)
                 source = "camera"
-        # Decided once per movement, so twist never reverses mid-gesture.
-        axis = motion.facing(axis, eye, target, camera_up)
-        if (source, axis) != self._logged_up:
-            self._logged_up = (source, axis)
-            view = tuple(round(b - a, 2) for a, b in zip(eye, target))
-            log("drehachse %s %s blick %s oben %s" % (
-                source, axis, view, tuple(round(c, 2) for c in camera_up),
-            ))
-        return axis
+        return source, axis
 
     def _modeling_up(self):
         """Fusion's default modeling orientation, Y up or Z up."""

@@ -141,29 +141,39 @@ def upright_axis(up):
     return (0.0, 0.0, 1.0) if abs(up[2]) >= abs(up[1]) else (0.0, 1.0, 0.0)
 
 
-def facing(axis, eye, target, up):
+# How clearly the view must favour the other side before the twist axis turns
+# over while the cap is held. About 6 degrees past the switch at 45 degrees.
+FLIP_MARGIN = 0.15
+
+
+def facing(axis, eye, target, up, previous=None):
     """The world axis, reversed where needed so twist turns the same way on screen.
 
     Seen from the side, the axis takes the side of the camera's up, so an
     upside-down model turns like an upright one. Seen from above or below,
     the axis points back at the camera, so Bottom spins the way Top does.
+    previous is the axis from the last step. It is kept until the view
+    clearly favours the other side, so the axis does not flicker.
     """
     if axis is None:
         return None
+    given = tuple(axis)
+    reverse = tuple(-c or 0.0 for c in axis)
     unit = _normalize(axis)
     frame = basis(eye, target, up)
     if unit is None or frame is None:
-        return tuple(axis)
+        return tuple(previous) if previous is not None else given
     _right, forward, true_up = frame
     along_up = _dot(unit, true_up)
     along_view = _dot(unit, forward)
-    if abs(along_view) > abs(along_up):
-        flip = along_view > 0.0
-    else:
-        flip = along_up < 0.0
-    if flip:
-        return tuple(-c or 0.0 for c in axis)
-    return tuple(axis)
+    # Each side's case is the stronger of the two cues for it.
+    keep = max(along_up, -along_view)
+    turn = max(-along_up, along_view)
+    if previous is not None and tuple(previous) == reverse:
+        return given if keep > turn + FLIP_MARGIN else reverse
+    if previous is not None and tuple(previous) == given:
+        return reverse if turn > keep + FLIP_MARGIN else given
+    return reverse if turn > keep else given
 
 
 def integrate(eye, target, up, axes, dt, view_height, speeds, object_mode, world_up=None):

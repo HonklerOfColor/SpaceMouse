@@ -169,6 +169,41 @@ def test_facing():
     assert motion.facing(None, side, ORIGIN, (0.0, 0.0, -1.0)) is None
 
 
+def test_axis_turns_over_while_the_cap_is_held():
+    # One gesture: tilt from the front over to upside down, never letting go.
+    eye, target, up = (0.0, -10.0, 0.0), ORIGIN, Z_UP
+    tilt = dict(TWIST, yaw=0.0, pitch=1.0)
+    world_up, changes = None, 0
+    for _ in range(70):
+        axis = motion.facing(Z_UP, eye, target, up, world_up)
+        changes += world_up is not None and axis != world_up
+        world_up = axis
+        eye, target, up = motion.integrate(eye, target, up, tilt, 0.05, 10.0, SLOW, True, world_up=world_up)
+    assert motion._dot(motion.basis(eye, target, up)[2], Z_UP) < -0.9
+    world_up = motion.facing(Z_UP, eye, target, up, world_up)
+    assert world_up == (0.0, 0.0, -1.0)
+    assert changes == 1, changes
+    # The view is not quite level, so compare which way the eye moves.
+    screen = motion.integrate(eye, target, up, TWIST, 0.05, 10.0, SLOW, True)[0]
+    world = motion.integrate(eye, target, up, TWIST, 0.05, 10.0, SLOW, True, world_up=world_up)[0]
+    assert motion._dot(motion._sub(screen, eye), motion._sub(world, eye)) > 0.0
+
+
+def test_axis_does_not_flicker_near_the_switch():
+    # Upright and below the model: past 45 degrees the spin takes over.
+    def below(degrees):
+        e = math.radians(degrees)
+        return (0.0, -10.0 * math.cos(e), -10.0 * math.sin(e)), ORIGIN, Z_UP
+
+    down = (0.0, 0.0, -1.0)
+    assert motion.facing(Z_UP, *below(40)) == Z_UP
+    assert motion.facing(Z_UP, *below(50)) == down
+    assert motion.facing(Z_UP, *below(50), previous=Z_UP) == Z_UP
+    assert motion.facing(Z_UP, *below(40), previous=down) == down
+    assert motion.facing(Z_UP, *below(56), previous=Z_UP) == down
+    assert motion.facing(Z_UP, *below(34), previous=down) == Z_UP
+
+
 def test_upright_axis():
     assert motion.upright_axis((0.0, 0.1, 0.99)) == (0.0, 0.0, 1.0)
     assert motion.upright_axis((0.0, -0.9, 0.2)) == (0.0, 1.0, 0.0)
@@ -185,5 +220,7 @@ if __name__ == "__main__":
     test_twist_upside_down_matches_screen_axis()
     test_bottom_spins_like_top()
     test_facing()
+    test_axis_turns_over_while_the_cap_is_held()
+    test_axis_does_not_flicker_near_the_switch()
     test_upright_axis()
     print("ok")
