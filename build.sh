@@ -13,6 +13,9 @@ codesign -s - --force bin/sp1hid
 ADDIN="$HOME/Library/Application Support/Autodesk/Autodesk Fusion 360/API/AddIns/SpacePilot"
 mkdir -p "$ADDIN"
 cp fusion/SpacePilot.py fusion/SpacePilot.manifest fusion/index.html fusion/motion.py "$ADDIN/"
-cp bin/sp1hid "$ADDIN/sp1hid"
-chmod +x "$ADDIN/sp1hid"
+# Put the helper down as a new file. Overwriting the one Fusion is running
+# makes macOS kill it for an invalid code signature.
+cp bin/sp1hid "$ADDIN/sp1hid.new"
+chmod +x "$ADDIN/sp1hid.new"
+mv -f "$ADDIN/sp1hid.new" "$ADDIN/sp1hid"
 echo "installiert: $ADDIN"

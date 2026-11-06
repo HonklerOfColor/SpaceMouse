@@ -52,7 +52,9 @@ Other values: `speed`, `panSpeed`, `zoomSpeed`, `orbitSpeed`, `rollSpeed`, `dead
 
 ## Buttons
 
-Press a button on the SpacePilot. Its number appears in the panel, and you pick the action next to it: Fit, a standard view, Undo, Faster, or a held key such as Shift. Shift, Ctrl, Alt, Command, and Esc stay down while the button is held. Fusion needs **Accessibility** permission for that.
+Press a button on the SpacePilot. Its number appears in the panel, and you pick the action next to it: Fit, a standard view, Undo, Speed + or Speed −, Config panel, or a held key such as Shift. Shift, Ctrl, Alt, Command, and Esc stay down while the button is held. Fusion needs **Accessibility** permission for that.
+
+As on the original SpacePilot, three keys come assigned. **+** (16) and **−** (17) raise and lower the speed one step per press. The speed shows on the LCD and in the panel. **Config** (20) opens the SpacePilot panel, and a second press closes it. Pick None to clear one of them.
 
 The same mapping is stored in `config.json` under `buttons`. Indexes start at 0.
 

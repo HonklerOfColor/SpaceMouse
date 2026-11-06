@@ -63,8 +63,9 @@ BUTTON_CHOICES = (
     ("right", "Right"),
     ("undo", "Undo"),
     ("redo", "Redo"),
-    ("faster", "Faster"),
-    ("slower", "Slower"),
+    ("faster", "Speed +"),
+    ("slower", "Speed −"),
+    ("config", "Config panel"),
     ("key:shift", "Hold Shift"),
     ("key:ctrl", "Hold Ctrl"),
     ("key:alt", "Hold Alt"),
@@ -72,6 +73,10 @@ BUTTON_CHOICES = (
     ("key:esc", "Esc"),
 )
 BUTTON_ACTIONS = {key for key, _label in BUTTON_CHOICES}
+
+# Keys that carry a fixed job on the original SpacePilot: + and − set the speed,
+# Config opens the settings. An entry of "" in config.json clears one of them.
+DEFAULT_BUTTONS = {"16": "faster", "17": "slower", "20": "config"}
 
 _handlers = []
 _addin = None
@@ -108,13 +113,14 @@ def default_config():
         "dominant": False,
         "worldUp": "auto",
         "map": dict(motion.DEFAULT_MAP),
-        "buttons": {},
+        "buttons": dict(DEFAULT_BUTTONS),
         "_help": (
             "map ties a motion to a raw axis. A leading minus reverses it. "
             "Example: \"panY\": \"-ty\". worldUp is the axis twist turns around: "
             "auto, y, z, or screen. buttons maps a button index to an action, "
             "for example \"4\": \"fit\". Actions: fit, iso, top, bottom, front, back, left, right, "
-            "undo, redo, faster, slower, key:shift, key:ctrl, key:alt, key:cmd, key:esc."
+            "undo, redo, faster, slower, config, key:shift, key:ctrl, key:alt, key:cmd, key:esc. "
+            "An empty action clears a button."
         ),
     }
 
@@ -139,7 +145,10 @@ def load_config():
     if isinstance(mapping, dict):
         cfg["map"].update(mapping)
     if isinstance(buttons, dict):
-        cfg["buttons"] = {str(key): value for key, value in buttons.items()}
+        # Older files lack the + / − / Config defaults. Entries in the file win.
+        merged = dict(DEFAULT_BUTTONS)
+        merged.update({str(key): value for key, value in buttons.items()})
+        cfg["buttons"] = merged
     return cfg
 
 
@@ -744,26 +753,29 @@ class AddIn:
             self.edges = []
             mapping = dict(self.config.get("buttons") or {})
         notes = []
+        labels = dict(BUTTON_CHOICES)
         for index, down in edges:
             action = str(mapping.get(str(index), "") or "")
-            if down:
-                if action:
-                    notes.append("Button %d → %s" % (index, action))
-                else:
-                    notes.append("Button %d, choose an action below" % index)
             self._buttons_dirty = True
             if action.startswith("key:"):
                 keycode = KEY_CODES.get(action.split(":", 1)[1].lower())
-                if keycode is None:
-                    continue
-                if down and keycode not in self.held_keys:
-                    if post_key(keycode, True):
-                        self.held_keys.add(keycode)
-                elif not down and keycode in self.held_keys:
-                    post_key(keycode, False)
-                    self.held_keys.discard(keycode)
+                if keycode is not None:
+                    if down and keycode not in self.held_keys:
+                        if post_key(keycode, True):
+                            self.held_keys.add(keycode)
+                    elif not down and keycode in self.held_keys:
+                        post_key(keycode, False)
+                        self.held_keys.discard(keycode)
             elif down and action:
                 self._run_action(action)
+            if not down:
+                continue
+            if action in ("faster", "slower"):
+                notes.append("Speed %.2fx" % float(self.config.get("speed", 1.0)))
+            elif action:
+                notes.append("Button %d → %s" % (index, labels.get(action, action)))
+            else:
+                notes.append("Button %d, choose an action below" % index)
         if notes:
             self.button_text = "  ".join(notes)
             log(self.button_text)
@@ -779,6 +791,9 @@ class AddIn:
                 return
             if name in VIEW_BY_NAME:
                 self._set_orientation(VIEW_BY_NAME[name], fit=(name == "iso"))
+                return
+            if name == "config":
+                self._toggle_config()
                 return
             if name == "undo":
                 self._run_command(("UndoCommand", "FusionUndoCommand"))
@@ -799,6 +814,18 @@ class AddIn:
             log("unbekannte Aktion %s" % action)
         except Exception as exc:
             log("aktion %s: %s" % (name, exc))
+
+    def _toggle_config(self):
+        """Config key: open the SpacePilot panel, or close it when it is open."""
+        palette = self._ensure_palette(visible=False)
+        if palette is None:
+            self.ui.messageBox(self._status_text(), "SpacePilot")
+            return
+        if palette.isVisible:
+            palette.isVisible = False
+            return
+        palette.isVisible = True
+        self._push_palette(force=True)
 
     def _set_orientation(self, orientation, fit):
         viewport = self.app.activeViewport
@@ -934,7 +961,8 @@ class AddIn:
             action = str(msg.get("action") or "")
             if 0 <= index <= 20 and action in BUTTON_ACTIONS:
                 buttons = cfg.setdefault("buttons", {})
-                if action:
+                if action or str(index) in DEFAULT_BUTTONS:
+                    # "" keeps a cleared default from coming back on the next load.
                     buttons[str(index)] = action
                 else:
                     buttons.pop(str(index), None)
