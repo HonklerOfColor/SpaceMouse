@@ -141,6 +141,19 @@ def upright_axis(up):
     return (0.0, 0.0, 1.0) if abs(up[2]) >= abs(up[1]) else (0.0, 1.0, 0.0)
 
 
+def facing(axis, up):
+    """The world axis turned to the side of the camera's up vector.
+
+    With the model upside down, twist then turns the same way on screen as it
+    does upright. A view along the axis, such as Top, keeps it as given.
+    """
+    if axis is None:
+        return None
+    if _dot(axis, up) < -1e-3 * (_length(axis) * _length(up)):
+        return tuple(-c or 0.0 for c in axis)
+    return tuple(axis)
+
+
 def integrate(eye, target, up, axes, dt, view_height, speeds, object_mode, world_up=None):
     """Move a look-at camera from cap axes panX, panY, zoom, pitch, yaw, roll.
 

@@ -114,6 +114,31 @@ def test_twist_direction_matches_screen_axis_when_level():
         assert math.dist(a, b) < 1e-9
 
 
+def test_twist_upside_down_matches_screen_axis():
+    # Model turned over: the camera's up points down the world axis.
+    eye = (0.0, -10.0, 0.0)
+    target = (0.0, 0.0, 0.0)
+    up = (0.0, 0.0, -1.0)
+    axes = {"panX": 0.0, "panY": 0.0, "zoom": 0.0, "pitch": 0.0, "yaw": 1.0, "roll": 0.0}
+    speeds = {"pan": 1.0, "zoom": 1.0, "orbit": 1.0, "roll": 1.0}
+    world_up = motion.facing((0.0, 0.0, 1.0), up)
+    assert world_up == (0.0, 0.0, -1.0)
+    screen = motion.integrate(eye, target, up, axes, 0.05, 10.0, speeds, True)
+    world = motion.integrate(eye, target, up, axes, 0.05, 10.0, speeds, True, world_up=world_up)
+    for a, b in zip(screen, world):
+        assert math.dist(a, b) < 1e-9
+
+
+def test_facing():
+    z = (0.0, 0.0, 1.0)
+    assert motion.facing(z, (0.0, 0.3, 0.9)) == z
+    assert motion.facing(z, (0.0, 0.3, -0.9)) == (0.0, 0.0, -1.0)
+    # Top view looks along the axis. It keeps the axis as given.
+    assert motion.facing(z, (0.0, 1.0, 0.0)) == z
+    assert motion.facing(z, (0.0, 1.0, -1e-12)) == z
+    assert motion.facing(None, (0.0, 0.0, -1.0)) is None
+
+
 def test_upright_axis():
     assert motion.upright_axis((0.0, 0.1, 0.99)) == (0.0, 0.0, 1.0)
     assert motion.upright_axis((0.0, -0.9, 0.2)) == (0.0, 1.0, 0.0)
@@ -127,5 +152,7 @@ if __name__ == "__main__":
     test_idle_does_not_move()
     test_twist_keeps_horizon_level()
     test_twist_direction_matches_screen_axis_when_level()
+    test_twist_upside_down_matches_screen_axis()
+    test_facing()
     test_upright_axis()
     print("ok")

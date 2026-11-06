@@ -729,6 +729,8 @@ class AddIn:
             if axis is None:
                 axis = motion.upright_axis(camera_up)
                 source = "camera"
+        # Decided once per movement, so twist never reverses mid-gesture.
+        axis = motion.facing(axis, camera_up)
         if (source, axis) != self._logged_up:
             self._logged_up = (source, axis)
             log("drehachse %s %s" % (source, axis))
