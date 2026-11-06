@@ -73,10 +73,59 @@ def test_idle_does_not_move():
     assert up2 == up
 
 
+def _tilt_then_twist(world_up):
+    eye = (0.0, -10.0, 0.0)
+    target = (0.0, 0.0, 0.0)
+    up = (0.0, 0.0, 1.0)
+    still = {k: 0.0 for k in ("panX", "panY", "zoom", "pitch", "yaw", "roll")}
+    speeds = {"pan": 1.0, "zoom": 1.0, "orbit": 2.6, "roll": 1.8}
+    for _ in range(10):
+        eye, target, up = motion.integrate(
+            eye, target, up, dict(still, pitch=1.0), 0.05, 10.0, speeds, True, world_up=world_up,
+        )
+    for _ in range(40):
+        eye, target, up = motion.integrate(
+            eye, target, up, dict(still, yaw=1.0), 0.05, 10.0, speeds, True, world_up=world_up,
+        )
+    return eye, target, up
+
+
+def test_twist_keeps_horizon_level():
+    world_up = (0.0, 0.0, 1.0)
+    eye, target, up = _tilt_then_twist(world_up)
+    right, _forward, _up = motion.basis(eye, target, up)
+    assert abs(motion._dot(right, world_up)) < 1e-9
+    assert abs(math.dist(eye, target) - 10.0) < 1e-6
+    # Without a world axis, twist follows the screen and the horizon tilts.
+    eye, target, up = _tilt_then_twist(None)
+    right, _forward, _up = motion.basis(eye, target, up)
+    assert abs(motion._dot(right, world_up)) > 0.5
+
+
+def test_twist_direction_matches_screen_axis_when_level():
+    eye = (0.0, -10.0, 0.0)
+    target = (0.0, 0.0, 0.0)
+    up = (0.0, 0.0, 1.0)
+    axes = {"panX": 0.0, "panY": 0.0, "zoom": 0.0, "pitch": 0.0, "yaw": 1.0, "roll": 0.0}
+    speeds = {"pan": 1.0, "zoom": 1.0, "orbit": 1.0, "roll": 1.0}
+    screen = motion.integrate(eye, target, up, axes, 0.05, 10.0, speeds, True)
+    world = motion.integrate(eye, target, up, axes, 0.05, 10.0, speeds, True, world_up=up)
+    for a, b in zip(screen, world):
+        assert math.dist(a, b) < 1e-9
+
+
+def test_upright_axis():
+    assert motion.upright_axis((0.0, 0.1, 0.99)) == (0.0, 0.0, 1.0)
+    assert motion.upright_axis((0.0, -0.9, 0.2)) == (0.0, 1.0, 0.0)
+
+
 if __name__ == "__main__":
     test_deadzone_and_curve()
     test_map_minus()
     test_pan_moves_model_with_the_hand()
     test_zoom_in_reduces_distance()
     test_idle_does_not_move()
+    test_twist_keeps_horizon_level()
+    test_twist_direction_matches_screen_axis_when_level()
+    test_upright_axis()
     print("ok")

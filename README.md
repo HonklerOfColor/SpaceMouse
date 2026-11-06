@@ -29,7 +29,7 @@ If macOS asks for **Input Monitoring**, allow Autodesk Fusion. Without that perm
 
 ## Use
 
-The cap moves the model the way a SpaceMouse does in Fusion: slide sideways and forward to pan, press in to zoom closer, tilt forward to orbit, and twist around the vertical axis to turn the model. The camera stays upright.
+The cap moves the model the way a SpaceMouse does in Fusion: slide sideways and forward to pan, press in to zoom closer, tilt forward to orbit, and twist to turn the model around the vertical axis of the design. Tilting forward and twisting keep the horizon level. Tilting the cap left or right rolls the view.
 
 Speed and axis direction live in
 
@@ -47,6 +47,8 @@ The file is created on first launch and reloaded when you save it. The same valu
 | tilt or twist is backwards | flip the sign on `pitch`, `yaw`, or `roll` |
 
 Other values: `speed`, `panSpeed`, `zoomSpeed`, `orbitSpeed`, `rollSpeed`, `deadzone`. `objectMode` set to `false` flies the camera instead of moving the model. `dominant` keeps only the strongest axis.
+
+`worldUp` is the axis that twist turns around. `auto` follows the default modeling orientation in the Fusion preferences. Set `"y"` or `"z"` when a design was made with the other orientation. `"screen"` turns around the vertical axis of the screen, so the horizon can tilt.
 
 ## Buttons
 

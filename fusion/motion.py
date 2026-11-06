@@ -136,11 +136,18 @@ def zoom_scale(zoom_axis, zoom_speed, dt, object_mode):
     return math.exp(-axis * zoom_speed * dt)
 
 
-def integrate(eye, target, up, axes, dt, view_height, speeds, object_mode):
+def upright_axis(up):
+    """World +Y or +Z, whichever lies closer to the camera's up vector."""
+    return (0.0, 0.0, 1.0) if abs(up[2]) >= abs(up[1]) else (0.0, 1.0, 0.0)
+
+
+def integrate(eye, target, up, axes, dt, view_height, speeds, object_mode, world_up=None):
     """Move a look-at camera from cap axes panX, panY, zoom, pitch, yaw, roll.
 
     Axes are already shaped to about -1..1. Object mode moves the model with
-    the hand, so the camera travels the opposite way.
+    the hand, so the camera travels the opposite way. With world_up, twist
+    turns around that axis and keeps the horizon level. Without it, twist
+    turns around the vertical axis of the screen.
     """
     dt = clamp(dt, 0.0, 0.05)
     active = any(abs(axes[key]) > 1e-9 for key in ("panX", "panY", "zoom", "pitch", "yaw", "roll"))
@@ -187,9 +194,12 @@ def integrate(eye, target, up, axes, dt, view_height, speeds, object_mode):
         return eye, target, up
     right, forward, true_up = frame
 
+    yaw_axis = true_up
+    if world_up is not None:
+        yaw_axis = _normalize(world_up) or true_up
     yaw = direction * axes["yaw"] * speeds["orbit"] * dt
-    eye = _rotate_about(eye, target, true_up, yaw)
-    true_up = _rotate(true_up, true_up, yaw)
+    eye = _rotate_about(eye, target, yaw_axis, yaw)
+    true_up = _rotate(true_up, yaw_axis, yaw)
 
     frame = basis(eye, target, true_up)
     if frame is None:

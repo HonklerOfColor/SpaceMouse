@@ -24,6 +24,11 @@ HELPER = os.path.join(_HERE, "sp1hid")
 EVENT_ID = "sp1_motion"
 CMD_ID = "sp1StatusCmd"
 PALETTE_ID = "sp1Palette"
+LOG_LIMIT = 512 * 1024
+RETRY_MIN = 1.0
+RETRY_MAX = 30.0
+RETRY_RESET = 10.0
+WORLD_UP = {"y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
 
 KEY_CODES = {
     "esc": 53,
@@ -70,13 +75,21 @@ BUTTON_ACTIONS = {key for key, _label in BUTTON_CHOICES}
 
 _handlers = []
 _addin = None
+_log_lock = threading.Lock()
 
 
 def log(message):
     try:
-        os.makedirs(SUPPORT, exist_ok=True)
-        with open(LOG_PATH, "a", encoding="utf-8") as handle:
-            handle.write(time.strftime("%H:%M:%S ") + message + "\n")
+        with _log_lock:
+            os.makedirs(SUPPORT, exist_ok=True)
+            # Keep one older file, so the log stays below about twice LOG_LIMIT.
+            try:
+                if os.path.getsize(LOG_PATH) > LOG_LIMIT:
+                    os.replace(LOG_PATH, LOG_PATH + ".1")
+            except OSError:
+                pass
+            with open(LOG_PATH, "a", encoding="utf-8") as handle:
+                handle.write(time.strftime("%H:%M:%S ") + message + "\n")
     except Exception:
         pass
 
@@ -93,11 +106,13 @@ def default_config():
         "speed": 1.0,
         "objectMode": True,
         "dominant": False,
+        "worldUp": "auto",
         "map": dict(motion.DEFAULT_MAP),
         "buttons": {},
         "_help": (
             "map ties a motion to a raw axis. A leading minus reverses it. "
-            "Example: \"panY\": \"-ty\". buttons maps a button index to an action, "
+            "Example: \"panY\": \"-ty\". worldUp is the axis twist turns around: "
+            "auto, y, z, or screen. buttons maps a button index to an action, "
             "for example \"4\": \"fit\". Actions: fit, iso, top, bottom, front, back, left, right, "
             "undo, redo, faster, slower, key:shift, key:ctrl, key:alt, key:cmd, key:esc."
         ),
@@ -316,8 +331,19 @@ class AddIn:
         self._buttons_dirty = False
         self.reports = 0
         self._saw_motion = False
+        self.link = None
+        self.error = None
+        self.event_id = EVENT_ID
+        self._motion_handler = None
+        self._wake = threading.Event()
+        self._logged_up = None
 
     def start(self):
+        # A run that ended without stop() can leave the event registered.
+        try:
+            self.app.unregisterCustomEvent(EVENT_ID)
+        except Exception:
+            pass
         self.event_id = EVENT_ID
         try:
             self.custom_event = self.app.registerCustomEvent(self.event_id)
@@ -326,6 +352,7 @@ class AddIn:
             self.custom_event = self.app.registerCustomEvent(self.event_id)
         handler = MotionHandler(self)
         self.custom_event.add(handler)
+        self._motion_handler = handler
         _handlers.append(handler)
         try:
             self._install_command()
@@ -343,6 +370,7 @@ class AddIn:
 
     def stop(self):
         self.stop_flag = True
+        self._wake.set()
         proc = self.proc
         if proc is not None and proc.poll() is None:
             proc.terminate()
@@ -351,6 +379,18 @@ class AddIn:
         for keycode in list(self.held_keys):
             post_key(keycode, False)
         self.held_keys.clear()
+        if self.custom_event is not None:
+            try:
+                if self._motion_handler is not None:
+                    self.custom_event.remove(self._motion_handler)
+            except Exception:
+                pass
+            try:
+                self.app.unregisterCustomEvent(self.event_id)
+            except Exception:
+                log(traceback.format_exc())
+            self.custom_event = None
+            self._motion_handler = None
         try:
             if self.palette:
                 self.palette.deleteMe()
@@ -366,6 +406,7 @@ class AddIn:
                 self.command.deleteMe()
         except Exception:
             pass
+        _handlers.clear()
         log("gestoppt")
 
     def toggle_palette(self):
@@ -408,13 +449,20 @@ class AddIn:
             self.ui.messageBox(status, "SpacePilot")
 
     def _read_loop(self):
+        # A helper that keeps failing, for example without Input Monitoring,
+        # is restarted after 1, 2, 4 … up to RETRY_MAX seconds.
+        delay = RETRY_MIN
         while not self.stop_flag:
             if not os.path.isfile(HELPER) or not os.access(HELPER, os.X_OK):
                 self._set_status("helper missing: %s" % HELPER, ok=False, bad=True)
                 self._fire()
-                time.sleep(2)
+                self._wake.wait(delay)
+                delay = min(delay * 2, RETRY_MAX)
                 continue
             self._lcd_payload = None
+            self.link = None
+            self.error = None
+            started = time.monotonic()
             try:
                 self.proc = subprocess.Popen(
                     [HELPER],
@@ -428,7 +476,8 @@ class AddIn:
             except Exception as exc:
                 self._set_status("failed to start: %s" % exc, ok=False, bad=True)
                 self._fire()
-                time.sleep(2)
+                self._wake.wait(delay)
+                delay = min(delay * 2, RETRY_MAX)
                 continue
             log("reader pid %s" % self.proc.pid)
             for line in self.proc.stdout:
@@ -437,10 +486,23 @@ class AddIn:
                 self._ingest(line.strip())
             if self.stop_flag:
                 break
-            code = self.proc.poll()
-            self._set_status("connection ended (code %s), retrying…" % code, ok=False, bad=False)
+            try:
+                code = self.proc.wait(timeout=2)
+            except Exception:
+                code = self.proc.poll()
+            if time.monotonic() - started >= RETRY_RESET:
+                delay = RETRY_MIN
+            if self.error:
+                # Keep the helper's own explanation, such as a missing permission.
+                self._set_status("%s (retrying in %d s)" % (self.error, delay), ok=False, bad=True)
+            else:
+                self._set_status(
+                    "connection ended (code %s), retrying in %d s…" % (code, delay),
+                    ok=False, bad=False,
+                )
             self._fire()
-            time.sleep(1.0)
+            self._wake.wait(delay)
+            delay = min(delay * 2, RETRY_MAX)
 
     def _log_stderr(self, proc):
         try:
@@ -460,6 +522,7 @@ class AddIn:
             return
         if "status" in msg:
             status = msg["status"]
+            self.link = status
             if status == "connected":
                 self._set_status("SpacePilot connected", ok=True, bad=False)
                 self._push_lcd()
@@ -472,7 +535,8 @@ class AddIn:
             elif status == "waiting":
                 self._set_status("waiting for the SpacePilot…", ok=False, bad=False)
             elif status == "error":
-                self._set_status(msg.get("message", "Error"), ok=False, bad=True)
+                self.error = str(msg.get("message") or "Error")
+                self._set_status(self.error, ok=False, bad=True)
             self._fire()
             return
         if "tx" not in msg:
@@ -481,10 +545,18 @@ class AddIn:
         reports = int(msg.get("n", 0))
         self.reports = reports
         self._set_axes(axes, int(msg.get("b", 0)))
-        if reports > 0:
-            self._set_status("SpacePilot connected, %d reports" % reports, ok=True, bad=False)
-        else:
-            self._set_status("SpacePilot connected. Move the cap.", ok=True, bad=False)
+        connected = msg.get("c")
+        if connected is None:
+            # A helper built before the "c" field reports the link only through status lines.
+            connected = self.link in ("connected", "shared")
+        # Samples also arrive as heartbeats without a device. They only refine the
+        # text of a plain connection and never turn "waiting", "disconnected",
+        # "shared" or an error into "connected".
+        if connected and self.link == "connected":
+            if reports > 0:
+                self._set_status("SpacePilot connected, %d reports" % reports, ok=True, bad=False)
+            else:
+                self._set_status("SpacePilot connected. Move the cap.", ok=True, bad=False)
         if any(abs(value) > 15 for value in axes) and not self._saw_motion:
             self._saw_motion = True
             log("bewegung %s" % axes)
@@ -575,6 +647,7 @@ class AddIn:
                     "ortho": ortho,
                     "extents": extents_of(camera) if ortho else None,
                     "fov": camera.perspectiveAngle,
+                    "worldUp": self._world_up(up),
                 }
             view = self._view
             speed = float(cfg.get("speed", 1.0))
@@ -597,6 +670,7 @@ class AddIn:
                 eye_axes["zoom"] = 0.0
             eye, target, up = motion.integrate(
                 eye, target, up, eye_axes, dt, height, speeds, object_mode,
+                world_up=view["worldUp"],
             )
             if view["ortho"] and view["extents"]:
                 factor = motion.zoom_scale(mapped["zoom"], speeds["zoom"], dt, object_mode)
@@ -631,6 +705,38 @@ class AddIn:
             if message != getattr(self, "_last_cam_error", None):
                 self._last_cam_error = message
                 log(message)
+
+    def _world_up(self, camera_up):
+        """Axis that twist turns around. None turns around the screen's vertical."""
+        choice = str(self.config.get("worldUp") or "auto").strip().lower()
+        source = choice
+        if choice == "screen":
+            axis = None
+        elif choice in WORLD_UP:
+            axis = WORLD_UP[choice]
+        else:
+            axis = self._modeling_up()
+            source = "preference"
+            if axis is None:
+                axis = motion.upright_axis(camera_up)
+                source = "camera"
+        if (source, axis) != self._logged_up:
+            self._logged_up = (source, axis)
+            log("drehachse %s %s" % (source, axis))
+        return axis
+
+    def _modeling_up(self):
+        """Fusion's default modeling orientation, Y up or Z up."""
+        try:
+            orientations = adsk.core.DefaultModelingOrientations
+            current = self.app.preferences.generalPreferences.defaultModelingOrientation
+        except Exception:
+            return None
+        if current == orientations.ZUpModelingOrientation:
+            return WORLD_UP["z"]
+        if current == orientations.YUpModelingOrientation:
+            return WORLD_UP["y"]
+        return None
 
     def _handle_buttons(self):
         with self.lock:

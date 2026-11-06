@@ -187,17 +187,21 @@ final class Driver {
     private func emitSample(_ sample: (Int, Int, Int, Int, Int, Int, Int, Int, Bool)? = nil, force: Bool = false) {
         let values: (Int, Int, Int, Int, Int, Int, Int)
         let reports: Int
+        let isConnected: Bool
         if let sample {
             values = (sample.0, sample.1, sample.2, sample.3, sample.4, sample.5, sample.6)
             reports = sample.7
+            isConnected = sample.8
         } else {
             lock.lock()
             values = (tx, ty, tz, rx, ry, rz, buttons)
             reports = reportCount
+            isConnected = connected
             lock.unlock()
         }
         _ = force
-        let line = "{\"tx\":\(values.0),\"ty\":\(values.1),\"tz\":\(values.2),\"rx\":\(values.3),\"ry\":\(values.4),\"rz\":\(values.5),\"b\":\(values.6),\"n\":\(reports)}\n"
+        // Heartbeats go out without a device too, so each sample says whether one is attached.
+        let line = "{\"tx\":\(values.0),\"ty\":\(values.1),\"tz\":\(values.2),\"rx\":\(values.3),\"ry\":\(values.4),\"rz\":\(values.5),\"b\":\(values.6),\"n\":\(reports),\"c\":\(isConnected)}\n"
         fputs(line, stdout)
         fflush(stdout)
     }
